@@ -1,5 +1,5 @@
 
-project_id = "tlrgqpzwfomdfcdhidou"
+project_id = "brswlwkgfcvmthqqmqjc"
 
 [functions.create-mercadopago-subscription]
 verify_jwt = true

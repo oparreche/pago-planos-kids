@@ -1,169 +1,236 @@
 
-# 🚀 Template - Sistema de Pagamentos com Mercado Pago e Supabase
+# Configuração do Template - Sistema de Pagamentos com Mercado Pago e Supabase
 
-Um template completo e pronto para uso que implementa um sistema de pagamentos recorrentes usando **Mercado Pago** e **Supabase**.
+Este guia te ajudará a configurar este template do zero para criar seu próprio sistema de pagamentos.
 
-## ✨ Principais Recursos
+## 📋 Pré-requisitos
 
-- 💳 **Pagamentos Recorrentes** - Sistema completo de assinaturas
-- 🔐 **Autenticação Segura** - Login/registro com Supabase Auth
-- 🎨 **Interface Moderna** - Design responsivo com Tailwind CSS
-- 🔄 **Webhook Automático** - Sincronização de pagamentos em tempo real
-- 🛡️ **Segurança RLS** - Row Level Security configurado
-- 📱 **Mobile First** - Totalmente responsivo
+- Conta no [Supabase](https://supabase.com)
+- Conta no [Mercado Pago](https://mercadopago.com.br)
+- Node.js 18+ instalado
+- Git instalado
 
-## 🎯 Para quem é este template?
+## 🚀 Configuração Passo a Passo
 
-- Desenvolvedores que querem implementar pagamentos rapidamente
-- Startups que precisam de um sistema de assinaturas
-- Freelancers criando soluções para clientes
-- Estudantes aprendendo integração de pagamentos
+### 1. Clonar o Template
 
-## 🚀 Configuração Rápida (5 minutos)
-
-### 1. Use este template
 ```bash
-# Clique em "Use this template" no GitHub ou:
+# Use este template do GitHub ou clone diretamente
 git clone <your-repo-url>
 cd mercadopago-supabase-template
 npm install
 ```
 
-### 2. Configuração automática
-```bash
-npm run setup
+### 2. Configurar Supabase
+
+#### 2.1 Criar Projeto Supabase
+1. Acesse [supabase.com](https://supabase.com)
+2. Clique em "New Project"
+3. Escolha um nome e senha para seu projeto
+4. Anote a **URL do projeto** e a **chave anon**
+
+#### 2.2 Configurar Database
+1. No painel do Supabase, vá em **SQL Editor**
+2. Execute o SQL de migração completa (veja seção abaixo)
+3. Verifique se as tabelas foram criadas: `plans`, `profiles`, `subscriptions`
+
+#### 2.3 Configurar Autenticação
+1. Vá em **Authentication > Settings**
+2. Em **Site URL**, adicione: `http://localhost:5173` (desenvolvimento)
+3. Em **Redirect URLs**, adicione:
+   - `http://localhost:5173/**`
+   - Sua URL de produção quando deploy
+
+### 3. Configurar Mercado Pago
+
+#### 3.1 Obter Credenciais de Teste
+1. Acesse [developers.mercadopago.com](https://developers.mercadopago.com)
+2. Vá em **Suas aplicações > Criar aplicação**
+3. Configure sua aplicação e obtenha:
+   - **Access Token de Teste**
+   - **Public Key de Teste**
+
+#### 3.2 Configurar Webhook (Importante!)
+1. No painel do Mercado Pago, vá em **Webhooks**
+2. Adicione a URL: `https://[SEU-PROJETO].supabase.co/functions/v1/mercadopago-webhook`
+3. Selecione o evento: **Payments**
+
+### 4. Configurar Variáveis de Ambiente
+
+#### 4.1 Atualizar arquivo do projeto
+Edite `src/integrations/supabase/client.ts`:
+```typescript
+const SUPABASE_URL = "SUA_URL_SUPABASE_AQUI";
+const SUPABASE_PUBLISHABLE_KEY = "SUA_CHAVE_ANON_AQUI";
 ```
 
-### 3. Inicie o projeto
+#### 4.2 Configurar Secrets do Supabase
+No painel do Supabase, vá em **Edge Functions > Manage secrets** e adicione:
+
+```
+MERCADOPAGO_ACCESS_TOKEN=seu_access_token_de_teste
+MERCADOPAGO_PUBLIC_KEY=sua_public_key_de_teste
+SUPABASE_URL=sua_url_supabase
+SUPABASE_ANON_KEY=sua_chave_anon
+SUPABASE_SERVICE_ROLE_KEY=sua_service_role_key
+```
+
+### 5. Executar Migração SQL
+
+Execute este SQL no **SQL Editor** do Supabase:
+
+```sql
+-- Criar tabela de perfis de usuários
+CREATE TABLE public.profiles (
+  id uuid NOT NULL REFERENCES auth.users ON DELETE CASCADE PRIMARY KEY,
+  email text,
+  full_name text,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now()
+);
+
+-- Criar enum para tipos de planos
+CREATE TYPE public.plan_type AS ENUM ('free', 'premium', 'vip');
+
+-- Criar tabela de planos
+CREATE TABLE public.plans (
+  id uuid NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+  name text NOT NULL,
+  type plan_type NOT NULL UNIQUE,
+  price decimal(10,2) NOT NULL,
+  description text,
+  features jsonb DEFAULT '[]'::jsonb,
+  created_at timestamp with time zone DEFAULT now()
+);
+
+-- Criar tabela de assinaturas
+CREATE TABLE public.subscriptions (
+  id uuid NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id uuid NOT NULL REFERENCES auth.users ON DELETE CASCADE,
+  plan_id uuid NOT NULL REFERENCES public.plans ON DELETE CASCADE,
+  mercadopago_subscription_id text,
+  status text DEFAULT 'pending',
+  started_at timestamp with time zone,
+  expires_at timestamp with time zone,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now()
+);
+
+-- Inserir planos padrão (PERSONALIZE AQUI!)
+INSERT INTO public.plans (name, type, price, description, features) VALUES 
+('Gratuito', 'free', 0.00, 'Plano básico gratuito', '["Acesso limitado", "Suporte básico"]'),
+('Premium', 'premium', 29.90, 'Planos premium com recursos avançados', '["Acesso completo", "Suporte prioritário", "Recursos premium"]'),
+('VIP', 'vip', 59.90, 'Plano VIP com todos os recursos', '["Acesso total", "Suporte 24/7", "Recursos exclusivos", "Sem limites"]');
+
+-- Habilitar RLS
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.plans ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.subscriptions ENABLE ROW LEVEL SECURITY;
+
+-- Políticas RLS para profiles
+CREATE POLICY "Users can view own profile" ON public.profiles
+  FOR SELECT USING (auth.uid() = id);
+CREATE POLICY "Users can update own profile" ON public.profiles
+  FOR UPDATE USING (auth.uid() = id);
+CREATE POLICY "Users can insert own profile" ON public.profiles
+  FOR INSERT WITH CHECK (auth.uid() = id);
+
+-- Políticas RLS para plans
+CREATE POLICY "Everyone can view plans" ON public.plans
+  FOR SELECT USING (true);
+
+-- Políticas RLS para subscriptions
+CREATE POLICY "Users can view own subscriptions" ON public.subscriptions
+  FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "Users can insert own subscriptions" ON public.subscriptions
+  FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Users can update own subscriptions" ON public.subscriptions
+  FOR UPDATE USING (auth.uid() = user_id);
+
+-- Função para criar perfil automaticamente
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS trigger AS $$
+BEGIN
+  INSERT INTO public.profiles (id, email, full_name)
+  VALUES (NEW.id, NEW.email, NEW.raw_user_meta_data->>'full_name');
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Trigger para novo usuário
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+```
+
+### 6. Testar a Aplicação
+
 ```bash
 npm run dev
 ```
 
-**📖 [Guia Completo de Configuração →](./SETUP.md)**
+#### 6.1 Testar Registro/Login
+1. Acesse `http://localhost:5173`
+2. Registre uma conta
+3. Faça login
 
-## 🏗️ Tecnologias Utilizadas
+#### 6.2 Testar Pagamentos
+1. Vá para `/plans`
+2. Escolha um plano pago
+3. Use os cartões de teste:
+   - **Visa**: 4509 9535 6623 3704 (Nome: APRO)
+   - **Mastercard**: 5031 7557 3453 0604 (Nome: APRO)
 
-- **Frontend**: React + TypeScript + Vite
-- **Styling**: Tailwind CSS + Shadcn/UI
-- **Backend**: Supabase (Database + Auth + Edge Functions)
-- **Pagamentos**: Mercado Pago API
-- **Deploy**: Vercel/Netlify Ready
+### 7. Deploy (Opcional)
 
-## 📊 Estrutura do Projeto
-
-```
-src/
-├── components/          # Componentes reutilizáveis
-│   ├── ui/             # Componentes base (Shadcn)
-│   └── PaymentStatus.tsx
-├── pages/              # Páginas principais
-│   ├── Plans.tsx       # Página de planos
-│   ├── Dashboard.tsx   # Dashboard do usuário
-│   └── Auth.tsx        # Autenticação
-├── hooks/              # Hooks customizados
-│   └── useAuth.tsx     # Contexto de autenticação
-└── integrations/       # Integrações externas
-    └── supabase/       # Cliente Supabase
-
-supabase/
-├── functions/          # Edge Functions
-│   ├── create-mercadopago-subscription/
-│   └── mercadopago-webhook/
-└── migrations/         # Migrations SQL
-```
-
-## 💳 Planos Incluídos
-
-| Plano | Preço | Recursos |
-|-------|-------|----------|
-| 🆓 Gratuito | R$ 0,00 | Recursos básicos |
-| ⭐ Premium | R$ 29,90 | Recursos avançados |
-| 👑 VIP | R$ 59,90 | Todos os recursos |
-
-*Preços totalmente personalizáveis*
-
-## 🧪 Testando Pagamentos
-
-Use os cartões de teste oficiais do Mercado Pago:
-
-- **Visa**: `4509 9535 6623 3704` (Nome: APRO)
-- **Mastercard**: `5031 7557 3453 0604` (Nome: APRO)
-- **Amex**: `3711 803032 57522` (Nome: APRO)
-
-## 🔧 Scripts Disponíveis
-
+#### 7.1 Deploy no Vercel/Netlify
 ```bash
-npm run dev          # Inicia desenvolvimento
-npm run setup        # Configuração automática
-npm run validate     # Valida configurações
-npm run build        # Build para produção
-npm run preview      # Preview do build
+npm run build
+# Siga as instruções da sua plataforma de deploy
 ```
+
+#### 7.2 Atualizar URLs
+- Atualize as URLs de redirect no Supabase
+- Atualize a URL do webhook no Mercado Pago
 
 ## 🎨 Personalização
 
 ### Modificar Planos
+Edite os valores no SQL acima ou diretamente no banco:
 ```sql
 UPDATE public.plans SET 
   name = 'Seu Plano',
   price = 99.90,
-  description = 'Sua descrição personalizada'
+  description = 'Sua descrição',
+  features = '["Recurso 1", "Recurso 2"]'
 WHERE type = 'premium';
 ```
 
-### Alterar Cores/Design
-- **Cores**: Edite `src/index.css`
-- **Componentes**: Modifique arquivos em `src/components/`
-- **Layout**: Ajuste páginas em `src/pages/`
+### Modificar Cores/Design
+- Edite `src/index.css` para cores
+- Modifique componentes em `src/components/`
+- Personalize `src/pages/Plans.tsx`
 
-## 📱 Screenshots
+## ❓ Problemas Comuns
 
-| Página de Planos | Dashboard | Checkout |
-|---|---|---|
-| ![Plans](https://via.placeholder.com/200x120?text=Plans) | ![Dashboard](https://via.placeholder.com/200x120?text=Dashboard) | ![Checkout](https://via.placeholder.com/200x120?text=Checkout) |
+### Erro de CORS
+- Verifique se as URLs estão configuradas no Supabase
 
-## 🌟 Casos de Uso
+### Pagamentos não funcionam
+- Confirme se o webhook está configurado
+- Verifique se as credenciais estão corretas
+- Use os cartões de teste oficiais
 
-- **SaaS** - Software como serviço
-- **Cursos Online** - Plataformas educacionais  
-- **Streaming** - Conteúdo digital
-- **Fitness Apps** - Aplicativos de treino
-- **Newsletters** - Conteúdo premium
-- **E-commerce** - Assinaturas de produtos
+### Banco não conecta
+- Verifique se a URL e chaves estão corretas
+- Confirme se as migrations foram executadas
 
-## 📋 Requisitos
+## 📞 Suporte
 
-- Node.js 18+
-- Conta Supabase (gratuita)
-- Conta Mercado Pago (gratuita)
-- Git
-
-## 🆘 Precisa de Ajuda?
-
-- 📖 [Documentação Completa](./SETUP.md)
-- 🐛 [Reportar Bug](./issues)
-- 💬 [Discussões](./discussions)
-- 📧 Email: suporte@exemplo.com
-
-## 🤝 Contribuindo
-
-Contribuições são bem-vindas! Veja nosso [guia de contribuição](./CONTRIBUTING.md).
-
-## 📄 Licença
-
-Este projeto está sob a licença MIT. Veja o arquivo [LICENSE](./LICENSE) para detalhes.
+- Documentação Supabase: https://supabase.com/docs
+- Documentação Mercado Pago: https://developers.mercadopago.com
+- Issues do GitHub: [Criar issue]
 
 ---
 
-## 🚀 Pronto para começar?
-
-1. **[Use este template](../../generate)** no GitHub
-2. **[Siga o guia de setup](./SETUP.md)** 
-3. **Customize** para suas necessidades
-4. **Deploy** e comece a receber pagamentos!
-
-**⭐ Se este template te ajudou, deixe uma estrela!**
-
----
-
-*Desenvolvido com ❤️ para a comunidade de desenvolvedores brasileiros*
+**🎉 Pronto! Seu sistema de pagamentos está funcionando!**
