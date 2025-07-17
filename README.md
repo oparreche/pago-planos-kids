@@ -170,7 +170,7 @@ npm run dev
 ```
 
 #### 6.1 Testar Registro/Login
-1. Acesse `http://localhost:5173`
+1. Acesse `http://localhost:8080`
 2. Registre uma conta
 3. Faça login
 
